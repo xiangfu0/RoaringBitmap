@@ -2545,6 +2545,8 @@ public class RoaringBitmap
     int pos1 = 0, pos2 = 0;
     int length1 = highLowContainer.size();
     final int length2 = x2.highLowContainer.size();
+    // Galloping is useful for a small input, but keep the linear merge for similar sizes.
+    final boolean sparseInput = length1 >= 4 * length2;
     main:
     if (pos1 < length1 && pos2 < length2) {
       char s1 = highLowContainer.getKeyAtIndex(pos1);
@@ -2552,11 +2554,16 @@ public class RoaringBitmap
 
       while (true) {
         if (s1 == s2) {
+          Container current = highLowContainer.getContainerAtIndex(pos1);
+          Container incoming = x2.highLowContainer.getContainerAtIndex(pos2);
           this.highLowContainer.setContainerAtIndex(
               pos1,
-              highLowContainer
-                  .getContainerAtIndex(pos1)
-                  .ior(x2.highLowContainer.getContainerAtIndex(pos2)));
+              sparseInput
+                      && current instanceof ArrayContainer
+                      && incoming instanceof ArrayContainer
+                      && incoming.getCardinality() == 1
+                  ? current.add(((ArrayContainer) incoming).content[0])
+                  : current.ior(incoming));
           pos1++;
           pos2++;
           if ((pos1 == length1) || (pos2 == length2)) {
@@ -2565,7 +2572,7 @@ public class RoaringBitmap
           s1 = highLowContainer.getKeyAtIndex(pos1);
           s2 = x2.highLowContainer.getKeyAtIndex(pos2);
         } else if (s1 < s2) {
-          pos1++;
+          pos1 = sparseInput ? highLowContainer.advanceUntil(s2, pos1) : pos1 + 1;
           if (pos1 == length1) {
             break main;
           }
