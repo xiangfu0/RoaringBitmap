@@ -825,6 +825,7 @@ public final class RoaringArray implements Cloneable, Externalizable, Appendable
   static final int MERGE_OR = 0;
   static final int MERGE_XOR = 1;
   static final int MERGE_LAZY_OR = 2;
+  static final int MERGE_LAZY_OR_SPARSE = 3;
 
   /**
    * Finishes an in-place union/xor/lazy-union ({@code op}) once the receiver's structure must
@@ -884,6 +885,8 @@ public final class RoaringArray implements Cloneable, Externalizable, Appendable
           c = this.values[left].ixor(other.values[right]);
         } else if (op == MERGE_LAZY_OR) {
           c = this.values[left].toBitmapContainer().lazyIOR(other.values[right]);
+        } else if (op == MERGE_LAZY_OR_SPARSE) {
+          c = this.values[left].lazyIOR(other.values[right]);
         } else {
           c = this.values[left].ior(other.values[right]);
         }

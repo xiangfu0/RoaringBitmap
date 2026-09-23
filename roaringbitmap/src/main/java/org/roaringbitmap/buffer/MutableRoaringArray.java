@@ -671,6 +671,7 @@ public final class MutableRoaringArray
   static final int MERGE_OR = 0;
   static final int MERGE_XOR = 1;
   static final int MERGE_LAZY_OR = 2;
+  static final int MERGE_LAZY_OR_SPARSE = 3;
 
   /**
    * Finishes an in-place union/xor/lazy-union ({@code op}) once the receiver's structure must
@@ -731,6 +732,8 @@ public final class MutableRoaringArray
           c = this.values[left].ixor(other.getContainerAtIndex(right));
         } else if (op == MERGE_LAZY_OR) {
           c = this.values[left].toBitmapContainer().lazyIOR(other.getContainerAtIndex(right));
+        } else if (op == MERGE_LAZY_OR_SPARSE) {
+          c = this.values[left].lazyIOR(other.getContainerAtIndex(right));
         } else {
           c = this.values[left].ior(other.getContainerAtIndex(right));
         }
