@@ -211,21 +211,32 @@ public class TestSparseInPlaceOr {
   public void arrayReceiverAtConversionBoundary() throws IOException {
     for (int cardinality : new int[] {4095, 4096}) {
       for (boolean present : new boolean[] {false, true}) {
-        MutableRoaringBitmap receiver = new MutableRoaringBitmap();
-        receiver
-            .getMappeableRoaringArray()
-            .append((char) 7, new MappeableArrayContainer(0, cardinality));
-        receiver.getMappeableRoaringArray().append((char) 9, container(1));
-        receiver.getMappeableRoaringArray().append((char) 11, container(2));
-        int low = present ? 10 : 60000;
-        assertUnion(receiver, MutableRoaringBitmap.bitmapOf((7 << 16) | low));
-        MappeableContainer result = receiver.highLowContainer.getContainerAtIndex(0);
-        int expectedCardinality = present ? cardinality : cardinality + 1;
-        assertEquals(expectedCardinality, result.getCardinality());
-        if (expectedCardinality > MappeableArrayContainer.DEFAULT_MAX_SIZE) {
-          assertInstanceOf(MappeableBitmapContainer.class, result);
-        } else {
-          assertInstanceOf(MappeableArrayContainer.class, result);
+        for (int flavor = 0; flavor < 3; flavor++) {
+          MutableRoaringBitmap receiver = new MutableRoaringBitmap();
+          receiver
+              .getMappeableRoaringArray()
+              .append((char) 7, new MappeableArrayContainer(0, cardinality));
+          receiver.getMappeableRoaringArray().append((char) 9, container(1));
+          receiver.getMappeableRoaringArray().append((char) 11, container(2));
+          MappeableContainer before = receiver.highLowContainer.getContainerAtIndex(0);
+          int low = present ? 10 : 60000;
+          ImmutableRoaringBitmap input =
+              inputFlavor(MutableRoaringBitmap.bitmapOf((7 << 16) | low), flavor);
+          MutableRoaringBitmap expected = MutableRoaringBitmap.or(receiver, input);
+          receiver.or(input);
+          assertResult(expected, receiver);
+          MappeableContainer result = receiver.highLowContainer.getContainerAtIndex(0);
+          int expectedCardinality = present ? cardinality : cardinality + 1;
+          assertEquals(expectedCardinality, result.getCardinality());
+          if (expectedCardinality > MappeableArrayContainer.DEFAULT_MAX_SIZE) {
+            assertInstanceOf(MappeableBitmapContainer.class, result);
+          } else {
+            // the singleton is inserted into the receiver's own array whatever the input's
+            // backing; a present value into a full 4096-element array is the case where ior()
+            // would instead round-trip through a bitmap container and hand back a new instance
+            assertInstanceOf(MappeableArrayContainer.class, result);
+            assertSame(before, result);
+          }
         }
       }
     }

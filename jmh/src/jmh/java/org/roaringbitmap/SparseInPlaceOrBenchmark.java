@@ -29,10 +29,14 @@ import java.util.concurrent.TimeUnit;
  *       the singleton insert into an array receiver (plus galloping to the key).
  *   <li>{@code array}: 256 inputs of three values in a random existing key. Isolates galloping;
  *       the container union itself is the regular array {@code ior}.
- *   <li>{@code interleaved}: 256 inputs of 16 odd keys. Every input reaches the source-only
- *       branch and bulk-merges into the receiver; galloping never fires.
- *   <li>{@code mostlyMissing}: 256 inputs of 200 random keys over all even and odd keys, so about
- *       half are absent: galloping between the matches, then one bulk merge per input.
+ *   <li>{@code interleaved}: 256 inputs of 16 odd keys, no odd key shared between inputs. For
+ *       every input the receiver-only branch runs once (to the first receiver key past the
+ *       input's first key) and the rest is one bulk merge; the receiver grows by 16 keys per
+ *       input.
+ *   <li>{@code mostlyMissing}: inputs of 200 keys, 100 random even keys (present) and 100 odd
+ *       keys no other input uses (absent), so half or more of every input's keys are missing
+ *       throughout the fold: galloping between the matches, then one bulk merge per input. The
+ *       fold has {@code min(256, containers / 100)} inputs so that the odd keys stay disjoint.
  *   <li>{@code receiverSmaller}: one input with 64 times more keys than the receiver, whose keys
  *       are a subset of the input's. Dominated by bulk insertion into a small receiver.
  *   <li>{@code ratio1}, {@code ratio2}, {@code ratio4}, {@code ratio8}, {@code ratio64}: one
@@ -40,6 +44,11 @@ import java.util.concurrent.TimeUnit;
  *       receiver-only branch runs at gap k-1 between matches; {@code ratio1} is the
  *       identical-key control where that branch never runs.
  * </ul>
+ *
+ * <p>{@code receiverSmaller} and the {@code ratio} patterns time a single union per invocation.
+ * The per-invocation setup makes JMH timestamp every call, so those numbers carry a small fixed
+ * overhead that matters most at 4096 containers, where one union is short; compare them within
+ * one {@code containers} setting.
  *
  * <p>{@code flavor} selects the heap {@link RoaringBitmap} or the buffer {@link
  * MutableRoaringBitmap} receiver; buffer inputs are {@link ImmutableRoaringBitmap} views over
@@ -108,20 +117,30 @@ public class SparseInPlaceOrBenchmark {
         addValues(heapInputs[0], 2 * j, 3, 3);
       }
     } else {
-      heapInputs = new RoaringBitmap[FOLD_INPUTS];
-      for (int i = 0; i < FOLD_INPUTS; i++) {
+      // The odd keys are absent from the receiver. interleaved and mostlyMissing hand each input
+      // its own slice of a shuffled permutation of them, so a key is inserted at most once during
+      // the fold and every input still misses the receiver as the javadoc describes.
+      boolean interleaved = "interleaved".equals(pattern);
+      boolean mostlyMissing = "mostlyMissing".equals(pattern);
+      int oddKeysPerInput = interleaved ? 16 : mostlyMissing ? 100 : 0;
+      int[] oddKeys = oddKeysPerInput == 0 ? null : shuffledOddKeys(containers, random);
+      int inputs =
+          oddKeysPerInput == 0 ? FOLD_INPUTS : Math.min(FOLD_INPUTS, containers / oddKeysPerInput);
+      heapInputs = new RoaringBitmap[inputs];
+      for (int i = 0; i < inputs; i++) {
         RoaringBitmap input = new RoaringBitmap();
         if ("singleton".equals(pattern)) {
           addValues(input, 2 * random.nextInt(containers), 3 + i, 1);
         } else if ("array".equals(pattern)) {
           addValues(input, 2 * random.nextInt(containers), 3 + 3 * i, 3);
-        } else if ("interleaved".equals(pattern)) {
-          for (int j = 0; j < 16; j++) {
-            addValues(input, 2 * random.nextInt(containers) + 1, 3 + i, 1);
+        } else if (interleaved) {
+          for (int j = 0; j < oddKeysPerInput; j++) {
+            addValues(input, oddKeys[oddKeysPerInput * i + j], 3 + i, 1);
           }
-        } else if ("mostlyMissing".equals(pattern)) {
-          for (int j = 0; j < 200; j++) {
-            addValues(input, random.nextInt(2 * containers), 3 + i, 1);
+        } else if (mostlyMissing) {
+          for (int j = 0; j < oddKeysPerInput; j++) {
+            addValues(input, 2 * random.nextInt(containers), 3 + i, 1);
+            addValues(input, oddKeys[oddKeysPerInput * i + j], 3 + i, 1);
           }
         } else {
           throw new IllegalArgumentException("unknown pattern " + pattern);
@@ -184,6 +203,21 @@ public class SparseInPlaceOrBenchmark {
       accumulator.or(input);
     }
     return accumulator;
+  }
+
+  /** The odd keys below {@code 2 * containers}, none of them in the receiver, in random order. */
+  private static int[] shuffledOddKeys(int containers, Random random) {
+    int[] keys = new int[containers];
+    for (int i = 0; i < containers; i++) {
+      keys[i] = 2 * i + 1;
+    }
+    for (int i = containers - 1; i > 0; i--) {
+      int j = random.nextInt(i + 1);
+      int swap = keys[i];
+      keys[i] = keys[j];
+      keys[j] = swap;
+    }
+    return keys;
   }
 
   private static void addValues(RoaringBitmap bitmap, int key, int firstLow, int count) {

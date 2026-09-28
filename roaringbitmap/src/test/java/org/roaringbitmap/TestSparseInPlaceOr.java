@@ -179,6 +179,7 @@ public class TestSparseInPlaceOr {
         receiver.highLowContainer.append((char) 7, new ArrayContainer(0, cardinality));
         receiver.highLowContainer.append((char) 9, container(1));
         receiver.highLowContainer.append((char) 11, container(2));
+        Container before = receiver.highLowContainer.getContainerAtIndex(0);
         int low = present ? 10 : 60000;
         assertUnion(receiver, RoaringBitmap.bitmapOf((7 << 16) | low));
         Container result = receiver.highLowContainer.getContainerAtIndex(0);
@@ -187,7 +188,11 @@ public class TestSparseInPlaceOr {
         if (expectedCardinality > ArrayContainer.DEFAULT_MAX_SIZE) {
           assertInstanceOf(BitmapContainer.class, result);
         } else {
+          // the singleton is inserted into the receiver's own array; a present value into a full
+          // 4096-element array is the case where ior() would instead round-trip through a bitmap
+          // container and hand back a new instance
           assertInstanceOf(ArrayContainer.class, result);
+          assertSame(before, result);
         }
       }
     }
