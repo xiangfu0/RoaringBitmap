@@ -587,6 +587,112 @@ public class TestMutableRoaringBitmapUnion {
   }
 
   @Test
+  public void pointInsertsIntoRunContainerAfterGetAreRenormalized() {
+    MutableRoaringBitmap runs = new MutableRoaringBitmap();
+    runs.add((long) value(9, 10), (long) value(9, 1000));
+    runs.add((long) value(9, 2000), (long) value(9, 3000));
+    assertTrue(runs.runOptimize());
+    MutableRoaringBitmapUnion union = MutableRoaringBitmapUnion.takeOwnership(runs);
+    MutableRoaringBitmap alias = union.get();
+    MutableRoaringBitmap expected = alias.clone();
+    assertFalse(union.isDirty());
+
+    union.add(value(9, 500)); // present: nothing to re-normalize
+    assertFalse(union.isDirty());
+    assertEquals(expected, union.get());
+
+    // 2,500 isolated values give a run container with 2,502 runs for 4,490 values, which is no
+    // longer its most compact encoding (validate() rejects it); MutableRoaringBitmap.add(int)
+    // leaves it that way, the union re-normalizes it on the next read
+    for (int i = 0; i < 2500; i++) {
+      int v = value(9, 3005 + 5 * i);
+      union.add(v);
+      expected.add(v);
+    }
+    assertTrue(union.isDirty());
+    MutableRoaringBitmap result = union.get();
+    assertFalse(union.isDirty());
+    assertValid(result);
+    assertEquals(expected, result);
+    assertEquals(4490, result.getCardinality());
+    assertInstanceOf(
+        MappeableBitmapContainer.class, result.getMappeableRoaringArray().getContainerAtIndex(0));
+    // the alias published before the inserts is untouched
+    assertSame(runs, alias);
+    assertValid(alias);
+    assertEquals(1990, alias.getCardinality());
+    assertInstanceOf(
+        MappeableRunContainer.class, alias.getMappeableRoaringArray().getContainerAtIndex(0));
+  }
+
+  @Test
+  public void pointInsertCrossesArrayToBitmapThresholdAfterBitmapAdd() {
+    MutableRoaringBitmap source = new MutableRoaringBitmap();
+    for (int i = 0; i < MappeableArrayContainer.DEFAULT_MAX_SIZE; i++) {
+      source.add(value(2, 2 * i));
+    }
+    assertInstanceOf(
+        MappeableArrayContainer.class, source.getMappeableRoaringArray().getContainerAtIndex(0));
+    ImmutableRoaringBitmap input = toMapped(source);
+    MutableRoaringBitmapUnion union = new MutableRoaringBitmapUnion();
+    union.add(input); // source-only key: the union holds a heap copy of the array container
+    assertTrue(union.isDirty());
+    // the 4097th value converts the array container to a bitmap container
+    union.add(value(2, 1));
+    MutableRoaringBitmap expected = source.clone();
+    expected.add(value(2, 1));
+
+    MutableRoaringBitmap result = union.get();
+    assertValid(result);
+    assertEquals(expected, result);
+    assertEquals(MappeableArrayContainer.DEFAULT_MAX_SIZE + 1, result.getCardinality());
+    assertInstanceOf(
+        MappeableBitmapContainer.class, result.getMappeableRoaringArray().getContainerAtIndex(0));
+    // the input is untouched
+    assertEquals(source, input);
+    assertEquals(MappeableArrayContainer.DEFAULT_MAX_SIZE, input.getCardinality());
+  }
+
+  @Test
+  public void pointInsertIntoValidBitmapContainerWhileAnotherContainerIsLazy() {
+    MutableRoaringBitmap receiver = new MutableRoaringBitmap();
+    for (int i = 0; i < 5000; i++) {
+      receiver.add(value(1, 13 * i));
+    }
+    MutableRoaringBitmap evens = new MutableRoaringBitmap();
+    MutableRoaringBitmap odds = new MutableRoaringBitmap();
+    for (int i = 0; i < 600; i++) {
+      evens.add(value(2, 2 * i));
+      odds.add(value(2, 2 * i + 1));
+    }
+    ImmutableRoaringBitmap mappedEvens = toMapped(evens);
+    ImmutableRoaringBitmap directOdds = toDirect(odds);
+    MutableRoaringBitmap expected = BufferFastAggregation.or(receiver, mappedEvens, directOdds);
+    MutableRoaringBitmapUnion union = MutableRoaringBitmapUnion.takeOwnership(receiver);
+    union.add(mappedEvens);
+    union.add(directOdds);
+    MutableRoaringArray array = receiver.getMappeableRoaringArray();
+    MappeableContainer dense = array.getContainerAtIndex(0);
+    MappeableContainer lazy = array.getContainerAtIndex(1);
+    assertInstanceOf(MappeableBitmapContainer.class, dense);
+    assertEquals(5000, dense.getCardinality(), "precondition: exact cardinality");
+    assertTrue(lazy.getCardinality() < 0, "precondition: the other container is lazy");
+
+    union.add(value(1, 65535)); // absent: the regular insert keeps the exact count
+    union.add(value(1, 0)); // present: nothing changes
+    expected.add(value(1, 65535));
+    assertSame(dense, array.getContainerAtIndex(0));
+    assertEquals(5001, dense.getCardinality());
+    assertTrue(lazy.getCardinality() < 0, "the lazy container is not disturbed");
+
+    MutableRoaringBitmap result = union.get();
+    assertSame(receiver, result);
+    assertValid(result);
+    assertEquals(expected, result);
+    assertEquals(5001 + 1200, result.getCardinality());
+  }
+
+  @Test
   public void nullArgumentsThrowWithParameterName() {
     MutableRoaringBitmapUnion union = new MutableRoaringBitmapUnion();
     NullPointerException input =

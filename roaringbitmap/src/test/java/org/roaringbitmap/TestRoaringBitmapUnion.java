@@ -502,6 +502,104 @@ public class TestRoaringBitmapUnion {
   }
 
   @Test
+  public void pointInsertsIntoRunContainerAfterGetAreRenormalized() {
+    RoaringBitmap runs = new RoaringBitmap();
+    runs.add((long) value(9, 10), (long) value(9, 1000));
+    runs.add((long) value(9, 2000), (long) value(9, 3000));
+    assertTrue(runs.runOptimize());
+    RoaringBitmapUnion union = RoaringBitmapUnion.takeOwnership(runs);
+    RoaringBitmap alias = union.get();
+    RoaringBitmap expected = alias.clone();
+    assertFalse(union.isDirty());
+
+    union.add(value(9, 500)); // present: nothing to re-normalize
+    assertFalse(union.isDirty());
+    assertEquals(expected, union.get());
+
+    // 2,500 isolated values give a run container with 2,502 runs for 4,490 values, which is no
+    // longer its most compact encoding (validate() rejects it); RoaringBitmap.add(int) leaves it
+    // that way, the union re-normalizes it on the next read
+    for (int i = 0; i < 2500; i++) {
+      int v = value(9, 3005 + 5 * i);
+      union.add(v);
+      expected.add(v);
+    }
+    assertTrue(union.isDirty());
+    RoaringBitmap result = union.get();
+    assertFalse(union.isDirty());
+    assertValid(result);
+    assertEquals(expected, result);
+    assertEquals(4490, result.getCardinality());
+    assertInstanceOf(BitmapContainer.class, result.highLowContainer.getContainerAtIndex(0));
+    // the alias published before the inserts is untouched
+    assertSame(runs, alias);
+    assertValid(alias);
+    assertEquals(1990, alias.getCardinality());
+    assertInstanceOf(RunContainer.class, alias.highLowContainer.getContainerAtIndex(0));
+  }
+
+  @Test
+  public void pointInsertCrossesArrayToBitmapThresholdAfterBitmapAdd() {
+    RoaringBitmap input = new RoaringBitmap();
+    for (int i = 0; i < ArrayContainer.DEFAULT_MAX_SIZE; i++) {
+      input.add(value(2, 2 * i));
+    }
+    assertInstanceOf(ArrayContainer.class, input.highLowContainer.getContainerAtIndex(0));
+    RoaringBitmapUnion union = new RoaringBitmapUnion();
+    union.add(input); // source-only key: the union holds a copy of the array container
+    assertTrue(union.isDirty());
+    // the 4097th value converts the array container to a bitmap container
+    union.add(value(2, 1));
+    RoaringBitmap expected = input.clone();
+    expected.add(value(2, 1));
+
+    RoaringBitmap result = union.get();
+    assertValid(result);
+    assertEquals(expected, result);
+    assertEquals(ArrayContainer.DEFAULT_MAX_SIZE + 1, result.getCardinality());
+    assertInstanceOf(BitmapContainer.class, result.highLowContainer.getContainerAtIndex(0));
+    // the input is untouched
+    assertEquals(ArrayContainer.DEFAULT_MAX_SIZE, input.getCardinality());
+    assertInstanceOf(ArrayContainer.class, input.highLowContainer.getContainerAtIndex(0));
+  }
+
+  @Test
+  public void pointInsertIntoValidBitmapContainerWhileAnotherContainerIsLazy() {
+    RoaringBitmap receiver = new RoaringBitmap();
+    for (int i = 0; i < 5000; i++) {
+      receiver.add(value(1, 13 * i));
+    }
+    RoaringBitmap evens = new RoaringBitmap();
+    RoaringBitmap odds = new RoaringBitmap();
+    for (int i = 0; i < 600; i++) {
+      evens.add(value(2, 2 * i));
+      odds.add(value(2, 2 * i + 1));
+    }
+    RoaringBitmap expected = FastAggregation.or(receiver, evens, odds);
+    RoaringBitmapUnion union = RoaringBitmapUnion.takeOwnership(receiver);
+    union.add(evens);
+    union.add(odds);
+    Container dense = receiver.highLowContainer.getContainerAtIndex(0);
+    Container lazy = receiver.highLowContainer.getContainerAtIndex(1);
+    assertInstanceOf(BitmapContainer.class, dense);
+    assertEquals(5000, dense.getCardinality(), "precondition: exact cardinality");
+    assertTrue(lazy.getCardinality() < 0, "precondition: the other container is lazy");
+
+    union.add(value(1, 65535)); // absent: the regular insert keeps the exact count
+    union.add(value(1, 0)); // present: nothing changes
+    expected.add(value(1, 65535));
+    assertSame(dense, receiver.highLowContainer.getContainerAtIndex(0));
+    assertEquals(5001, dense.getCardinality());
+    assertTrue(lazy.getCardinality() < 0, "the lazy container is not disturbed");
+
+    RoaringBitmap result = union.get();
+    assertSame(receiver, result);
+    assertValid(result);
+    assertEquals(expected, result);
+    assertEquals(5001 + 1200, result.getCardinality());
+  }
+
+  @Test
   public void nullArgumentsThrowWithParameterName() {
     RoaringBitmapUnion union = new RoaringBitmapUnion();
     NullPointerException input =
