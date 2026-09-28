@@ -696,7 +696,7 @@ public abstract class Container
   public Container lazyIOR(Container x) {
     if (this instanceof ArrayContainer) {
       if (x instanceof ArrayContainer) {
-        return ((ArrayContainer) this).lazyor((ArrayContainer) x);
+        return ((ArrayContainer) this).ilazyor((ArrayContainer) x);
       } else if (x instanceof BitmapContainer) {
         return ior((BitmapContainer) x);
       }
