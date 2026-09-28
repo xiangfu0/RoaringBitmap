@@ -1382,6 +1382,9 @@ public class MutableRoaringBitmap extends ImmutableRoaringBitmap
     int pos1 = 0, pos2 = 0;
     int length1 = highLowContainer.size();
     final int length2 = x2.highLowContainer.size();
+    // galloping only pays off when the receiver has many more keys than the input; for similar
+    // sizes the linear walk is cheaper per key and keeps the merge byte-for-byte on the old path
+    final boolean sparseInput = length1 >= 4 * length2;
     main:
     if (pos1 < length1 && pos2 < length2) {
       char s1 = highLowContainer.getKeyAtIndex(pos1);
@@ -1403,21 +1406,18 @@ public class MutableRoaringBitmap extends ImmutableRoaringBitmap
           s1 = highLowContainer.getKeyAtIndex(pos1);
           s2 = x2.highLowContainer.getKeyAtIndex(pos2);
         } else if (s1 < s2) {
-          pos1++;
+          // receiver-only keys: for a much smaller input gallop to the first receiver key >= s2
+          // instead of stepping; similar sizes keep the linear walk (see sparseInput)
+          pos1 = sparseInput ? highLowContainer.advanceUntil(s2, pos1) : pos1 + 1;
           if (pos1 == length1) {
             break main;
           }
           s1 = highLowContainer.getKeyAtIndex(pos1);
         } else { // s1 > s2
+          // source-only insert: bulk-merge the rest (insert per key would be quadratic)
           getMappeableRoaringArray()
-              .insertNewKeyValueAt(pos1, s2, x2.highLowContainer.getContainerAtIndex(pos2).clone());
-          pos1++;
-          length1++;
-          pos2++;
-          if (pos2 == length2) {
-            break main;
-          }
-          s2 = x2.highLowContainer.getKeyAtIndex(pos2);
+              .mergeBulk(x2.highLowContainer, pos1, pos1, pos2, MutableRoaringArray.MERGE_LAZY_OR);
+          return;
         }
       }
     }
@@ -1437,6 +1437,9 @@ public class MutableRoaringBitmap extends ImmutableRoaringBitmap
     int pos1 = 0, pos2 = 0;
     int length1 = highLowContainer.size();
     final int length2 = x2.highLowContainer.size();
+    // galloping only pays off when the receiver has many more keys than the input; for similar
+    // sizes the linear walk is cheaper per key and keeps the merge byte-for-byte on the old path
+    final boolean sparseInput = length1 >= 4 * length2;
     main:
     if (pos1 < length1 && pos2 < length2) {
       char s1 = highLowContainer.getKeyAtIndex(pos1);
@@ -1456,7 +1459,9 @@ public class MutableRoaringBitmap extends ImmutableRoaringBitmap
           s1 = highLowContainer.getKeyAtIndex(pos1);
           s2 = x2.highLowContainer.getKeyAtIndex(pos2);
         } else if (s1 < s2) {
-          pos1++;
+          // receiver-only keys: for a much smaller input gallop to the first receiver key >= s2
+          // instead of stepping; similar sizes keep the linear walk (see sparseInput)
+          pos1 = sparseInput ? highLowContainer.advanceUntil(s2, pos1) : pos1 + 1;
           if (pos1 == length1) {
             break main;
           }
@@ -1464,7 +1469,8 @@ public class MutableRoaringBitmap extends ImmutableRoaringBitmap
         } else { // s1 > s2
           // source-only insert: bulk-merge the rest (insert per key would be quadratic)
           getMappeableRoaringArray()
-              .mergeBulk(x2.highLowContainer, pos1, pos1, pos2, MutableRoaringArray.MERGE_LAZY_OR);
+              .mergeBulk(
+                  x2.highLowContainer, pos1, pos1, pos2, MutableRoaringArray.MERGE_NAIVE_LAZY_OR);
           return;
         }
       }
