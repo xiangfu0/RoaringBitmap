@@ -1507,7 +1507,9 @@ public class MutableRoaringBitmap extends ImmutableRoaringBitmap
           s1 = highLowContainer.getKeyAtIndex(pos1);
           s2 = x2.highLowContainer.getKeyAtIndex(pos2);
         } else if (s1 < s2) {
-          pos1++;
+          // receiver-only keys: gallop to the first receiver key >= s2 (O(1) when it is the
+          // next key, so a similar-size merge is not penalised; much cheaper for a small input)
+          pos1 = highLowContainer.advanceUntil(s2, pos1);
           if (pos1 == length1) {
             break main;
           }
