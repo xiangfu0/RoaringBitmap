@@ -1486,6 +1486,9 @@ public class MutableRoaringBitmap extends ImmutableRoaringBitmap
     int pos1 = 0, pos2 = 0;
     int length1 = highLowContainer.size();
     final int length2 = x2.highLowContainer.size();
+    // galloping only pays off when the receiver has many more keys than the input; for similar
+    // sizes the linear walk is cheaper per key and keeps the merge byte-for-byte on the old path
+    final boolean sparseInput = length1 >= 4 * length2;
     main:
     if (pos1 < length1 && pos2 < length2) {
       char s1 = highLowContainer.getKeyAtIndex(pos1);
@@ -1496,7 +1499,8 @@ public class MutableRoaringBitmap extends ImmutableRoaringBitmap
           MappeableContainer current = highLowContainer.getContainerAtIndex(pos1);
           // fetched once: a mapped source allocates a view per call
           MappeableContainer incoming = x2.highLowContainer.getContainerAtIndex(pos2);
-          if (current instanceof MappeableArrayContainer
+          if (sparseInput
+              && current instanceof MappeableArrayContainer
               && incoming instanceof MappeableArrayContainer
               && incoming.getCardinality() == 1) {
             // one value into an array: insert it in place instead of merging two arrays (the
@@ -1515,9 +1519,9 @@ public class MutableRoaringBitmap extends ImmutableRoaringBitmap
           s1 = highLowContainer.getKeyAtIndex(pos1);
           s2 = x2.highLowContainer.getKeyAtIndex(pos2);
         } else if (s1 < s2) {
-          // receiver-only keys: gallop to the first receiver key >= s2 (O(1) when it is the
-          // next key, so a similar-size merge is not penalised; much cheaper for a small input)
-          pos1 = highLowContainer.advanceUntil(s2, pos1);
+          // receiver-only keys: for a much smaller input gallop to the first receiver key >= s2
+          // instead of stepping; similar sizes keep the linear walk (see sparseInput)
+          pos1 = sparseInput ? highLowContainer.advanceUntil(s2, pos1) : pos1 + 1;
           if (pos1 == length1) {
             break main;
           }

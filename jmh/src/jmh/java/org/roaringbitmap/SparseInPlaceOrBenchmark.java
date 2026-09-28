@@ -42,7 +42,9 @@ import java.util.concurrent.TimeUnit;
  *   <li>{@code ratio1}, {@code ratio2}, {@code ratio4}, {@code ratio8}, {@code ratio64}: one
  *       input whose keys are every k-th receiver key, all present, three values each. The
  *       receiver-only branch runs at gap k-1 between matches; {@code ratio1} is the
- *       identical-key control where that branch never runs.
+ *       identical-key control where that branch never runs. The size gate ({@code length1 >= 4 *
+ *       length2}) keeps {@code ratio1} and {@code ratio2} on the linear walk; {@code ratio4} and
+ *       up gallop.
  * </ul>
  *
  * <p>{@code receiverSmaller} and the {@code ratio} patterns time a single union per invocation.

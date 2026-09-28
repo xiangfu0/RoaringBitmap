@@ -179,6 +179,10 @@ public class TestSparseInPlaceOr {
         receiver.highLowContainer.append((char) 7, new ArrayContainer(0, cardinality));
         receiver.highLowContainer.append((char) 9, container(1));
         receiver.highLowContainer.append((char) 11, container(2));
+        // at least four receiver keys against a one-key input, so the size gate
+        // (length1 >= 4 * length2) enables the in-place insert
+        receiver.highLowContainer.append((char) 13, container(1));
+        receiver.highLowContainer.append((char) 15, container(3));
         Container before = receiver.highLowContainer.getContainerAtIndex(0);
         int low = present ? 10 : 60000;
         assertUnion(receiver, RoaringBitmap.bitmapOf((7 << 16) | low));

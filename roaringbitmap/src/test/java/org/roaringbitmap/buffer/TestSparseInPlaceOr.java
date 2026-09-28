@@ -218,6 +218,10 @@ public class TestSparseInPlaceOr {
               .append((char) 7, new MappeableArrayContainer(0, cardinality));
           receiver.getMappeableRoaringArray().append((char) 9, container(1));
           receiver.getMappeableRoaringArray().append((char) 11, container(2));
+          // at least four receiver keys against a one-key input, so the size gate
+          // (length1 >= 4 * length2) enables the in-place insert
+          receiver.getMappeableRoaringArray().append((char) 13, container(1));
+          receiver.getMappeableRoaringArray().append((char) 15, container(3));
           MappeableContainer before = receiver.highLowContainer.getContainerAtIndex(0);
           int low = present ? 10 : 60000;
           ImmutableRoaringBitmap input =
