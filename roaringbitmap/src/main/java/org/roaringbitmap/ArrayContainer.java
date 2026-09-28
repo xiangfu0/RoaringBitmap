@@ -1526,6 +1526,33 @@ public final class ArrayContainer extends Container implements Cloneable {
             answer.content);
     return answer;
   }
+
+  /**
+   * Computes the in-place lazy union of this container with another array container. When the
+   * combined cardinality is at most {@code ARRAY_LAZY_LOWERBOUND} the values are merged into this
+   * container, exactly as {@link #ior(ArrayContainer)} does (a single-value input is inserted with
+   * {@link #add(char)}), so nothing is allocated while the backing array has spare capacity. Above
+   * that bound this container is promoted to a lazy bitmap
+   * container whose cardinality is not maintained; call {@link #repairAfterLazy()} on the result.
+   * Unlike {@link #lazyor(ArrayContainer)} the receiver is modified, so it must be owned by the
+   * caller.
+   *
+   * @param value2 other container
+   * @return the aggregated container: {@code this} when the result is still an array container
+   */
+  Container ilazyor(ArrayContainer value2) {
+    int totalCardinality = getCardinality() + value2.getCardinality();
+    if (totalCardinality > ARRAY_LAZY_LOWERBOUND) {
+      return toBitmapContainer().lazyIOR(value2);
+    }
+    if (value2.cardinality == 1) {
+      // a single value: binary search plus one tail move instead of a full shift and merge
+      return add(value2.content[0]);
+    }
+    // totalCardinality <= ARRAY_LAZY_LOWERBOUND < DEFAULT_MAX_SIZE, so ior keeps the array
+    // representation and returns this.
+    return ior(value2);
+  }
 }
 
 final class ArrayContainerCharIterator implements PeekableCharRankIterator {
