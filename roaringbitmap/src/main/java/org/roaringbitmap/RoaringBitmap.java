@@ -2552,11 +2552,19 @@ public class RoaringBitmap
 
       while (true) {
         if (s1 == s2) {
-          this.highLowContainer.setContainerAtIndex(
-              pos1,
-              highLowContainer
-                  .getContainerAtIndex(pos1)
-                  .ior(x2.highLowContainer.getContainerAtIndex(pos2)));
+          Container current = highLowContainer.getContainerAtIndex(pos1);
+          Container incoming = x2.highLowContainer.getContainerAtIndex(pos2);
+          if (current instanceof ArrayContainer
+              && incoming instanceof ArrayContainer
+              && incoming.getCardinality() == 1) {
+            // one value into an array: insert it in place instead of merging two arrays (the
+            // array still converts to a bitmap at DEFAULT_MAX_SIZE); run and bitmap receivers
+            // keep ior so their representation conversions are preserved
+            this.highLowContainer.setContainerAtIndex(
+                pos1, current.add(((ArrayContainer) incoming).content[0]));
+          } else {
+            this.highLowContainer.setContainerAtIndex(pos1, current.ior(incoming));
+          }
           pos1++;
           pos2++;
           if ((pos1 == length1) || (pos2 == length2)) {

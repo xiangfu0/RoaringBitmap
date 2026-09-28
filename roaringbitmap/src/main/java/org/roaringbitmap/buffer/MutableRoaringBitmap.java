@@ -1493,12 +1493,20 @@ public class MutableRoaringBitmap extends ImmutableRoaringBitmap
 
       while (true) {
         if (s1 == s2) {
-          getMappeableRoaringArray()
-              .setContainerAtIndex(
-                  pos1,
-                  highLowContainer
-                      .getContainerAtIndex(pos1)
-                      .ior(x2.highLowContainer.getContainerAtIndex(pos2)));
+          MappeableContainer current = highLowContainer.getContainerAtIndex(pos1);
+          // fetched once: a mapped source allocates a view per call
+          MappeableContainer incoming = x2.highLowContainer.getContainerAtIndex(pos2);
+          if (current instanceof MappeableArrayContainer
+              && incoming instanceof MappeableArrayContainer
+              && incoming.getCardinality() == 1) {
+            // one value into an array: insert it in place instead of merging two arrays (the
+            // array still converts to a bitmap at DEFAULT_MAX_SIZE); run and bitmap receivers
+            // keep ior so their representation conversions are preserved
+            getMappeableRoaringArray()
+                .setContainerAtIndex(pos1, current.add((char) incoming.first()));
+          } else {
+            getMappeableRoaringArray().setContainerAtIndex(pos1, current.ior(incoming));
+          }
           pos1++;
           pos2++;
           if ((pos1 == length1) || (pos2 == length2)) {
