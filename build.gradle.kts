@@ -61,7 +61,9 @@ subprojects {
             val javaToolchains = project.extensions.getByType<JavaToolchainService>()
             val requestedVersion = (project.properties["testOnJava"] ?: "11").toString().toInt()
             val currentVersion = JavaVersion.current().majorVersion.toInt()
-            val versionToUse = if (currentVersion > requestedVersion) currentVersion else requestedVersion
+            // Honor an explicitly requested test JVM even when Gradle runs on a newer JDK.
+            val versionToUse =
+                if (project.hasProperty("testOnJava")) requestedVersion else maxOf(currentVersion, requestedVersion)
             javaLauncher.set(javaToolchains.launcherFor {
                 languageVersion.set(JavaLanguageVersion.of(versionToUse))
             })
