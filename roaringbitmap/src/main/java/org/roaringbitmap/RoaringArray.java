@@ -824,12 +824,25 @@ public final class RoaringArray implements Cloneable, Externalizable, Appendable
 
   static final int MERGE_OR = 0;
   static final int MERGE_XOR = 1;
+
+  /**
+   * Lazy union without forced promotion ({@code values[left].lazyIOR(other)}); used by {@code
+   * lazyor}. The container type still changes when the union needs it, for example two array
+   * containers whose combined cardinality exceeds the lazy array bound become a bitmap container.
+   */
   static final int MERGE_LAZY_OR = 2;
 
   /**
-   * Finishes an in-place union/xor/lazy-union ({@code op}) once the receiver's structure must
-   * change, merging both suffixes into fresh arrays in one pass. Avoids the per-key insert/remove
-   * shift, which is quadratic when keys are interleaved.
+   * Lazy union that first promotes the receiver to a bitmap container; used by {@code naivelazyor}.
+   */
+  static final int MERGE_NAIVE_LAZY_OR = 3;
+
+  /**
+   * Finishes an in-place union/xor/lazy-union once the receiver's structure must change, merging
+   * both suffixes into fresh arrays in one pass. Avoids the per-key insert/remove shift, which is
+   * quadratic when keys are interleaved. {@code op} is one of {@link #MERGE_OR},
+   * {@link #MERGE_XOR}, {@link #MERGE_LAZY_OR} (non-promoting lazy union) or
+   * {@link #MERGE_NAIVE_LAZY_OR} (lazy union that promotes the receiver container to a bitmap).
    *
    * <p>{@code [0, dst)} is already final and copied over. {@code left}/{@code right} are the
    * receiver/source scan positions. For a union {@code dst == left}; xor may pass
@@ -883,6 +896,8 @@ public final class RoaringArray implements Cloneable, Externalizable, Appendable
         if (op == MERGE_XOR) {
           c = this.values[left].ixor(other.values[right]);
         } else if (op == MERGE_LAZY_OR) {
+          c = this.values[left].lazyIOR(other.values[right]);
+        } else if (op == MERGE_NAIVE_LAZY_OR) {
           c = this.values[left].toBitmapContainer().lazyIOR(other.values[right]);
         } else {
           c = this.values[left].ior(other.values[right]);

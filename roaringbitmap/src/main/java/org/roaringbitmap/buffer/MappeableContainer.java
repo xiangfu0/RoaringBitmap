@@ -619,7 +619,7 @@ public abstract class MappeableContainer
   public MappeableContainer lazyIOR(MappeableContainer x) {
     if (this instanceof MappeableArrayContainer) {
       if (x instanceof MappeableArrayContainer) {
-        return ((MappeableArrayContainer) this).lazyor((MappeableArrayContainer) x);
+        return ((MappeableArrayContainer) this).ilazyor((MappeableArrayContainer) x);
       } else if (x instanceof MappeableBitmapContainer) {
         return ((MappeableBitmapContainer) x).lazyor((MappeableArrayContainer) this);
       }
